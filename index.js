@@ -63,6 +63,12 @@ app.use("/pkta117", jwtValidate, PKTA117);
 let User = require("./src/routes/user");
 app.use("/user", jwtValidate, User);
 
+let Form = require("./src/routes/form");
+app.use("/form", jwtValidate, Form);
+
+let Sending = require("./src/routes/sending");
+app.use("/sending", jwtValidate, Sending);
+
 let Auth = require("./src/routes/auth");
 app.use("/auth", Auth);
 
