@@ -93,7 +93,7 @@ router.get("/printTable", async (req, res, next) => {
         'as': 'forms'
       }
     })
-    const usersQuery = await SENDING.aggregate(condition)
+    const usersQuery = await SENDING.aggregate(condition).sort({createdAt:-1})
     res.json(usersQuery);
   } catch (error) {
     console.log("🚀 ~ error:", error);

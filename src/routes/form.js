@@ -41,8 +41,7 @@ router.get("/runNo", async (req, res, next) => {
           }
         }
       }
-    ]).sort({ runNo: 1 }).limit(1)
-    console.log("🚀 ~ last:", last)
+    ]).sort({ runNo: -1 }).limit(1)
     if (last && last.length>0) {
       let runNo = last[0]['runNo']
       const number = Number(runNo.split('-')[2]) + 1
