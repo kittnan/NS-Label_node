@@ -15,8 +15,8 @@ router.post("/login", async (req, res) => {
   let user = await USERS.aggregate([
     {
       $match: {
-        username: payload.name,
-        password: payload.pass
+        employeeCode: payload.name,
+        employeeCode: payload.pass
       }
     }
   ])
@@ -102,7 +102,7 @@ const jwtGenerate = (user) => {
   const accessToken = jwt.sign(
     { name: user.employeeCode, id: user._id },
     process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: "30m", algorithm: "HS256" }
+    { expiresIn: "1d", algorithm: "HS256" }
   )
 
   return accessToken
@@ -112,7 +112,7 @@ const jwtRefreshTokenGenerate = (user) => {
   const refreshToken = jwt.sign(
     { name: user.employeeCode, id: user._id },
     process.env.REFRESH_TOKEN_SECRET,
-    { expiresIn: "1d", algorithm: "HS256" }
+    { expiresIn: "30m", algorithm: "HS256" }
   )
 
   return refreshToken
