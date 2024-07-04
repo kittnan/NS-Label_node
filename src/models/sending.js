@@ -3,7 +3,7 @@ const Schema = mongoose.Schema;
 
 const model = new Schema(
   {
-   
+    sendingDate:Date
   },
   { timestamps: true, versionKey: false, strict: false }
 );

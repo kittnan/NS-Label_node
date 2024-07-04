@@ -2,7 +2,7 @@ let express = require("express");
 let router = express.Router();
 var mongoose = require("mongodb");
 const { ObjectId } = mongoose;
-const FORM = require("../models/form");
+const SHIPPING = require("../models/shippings");
 let axios = require("axios");
 const moment = require("moment");
 
@@ -22,7 +22,7 @@ router.get("/", async (req, res, next) => {
         }
       })
     }
-    const usersQuery = await FORM.aggregate(condition)
+    const usersQuery = await SHIPPING.aggregate(condition)
     res.json(usersQuery);
   } catch (error) {
     console.log("🚀 ~ error:", error);
@@ -32,7 +32,7 @@ router.get("/", async (req, res, next) => {
 
 router.get("/runNo", async (req, res, next) => {
   try {
-    let last = await FORM.aggregate([
+    let last = await SHIPPING.aggregate([
       {
         $match: {
           createdAt: {
@@ -63,7 +63,7 @@ router.get("/runNo", async (req, res, next) => {
 })
 router.post("/create", async (req, res, next) => {
   try {
-    const data = await FORM.insertMany(req.body)
+    const data = await SHIPPING.insertMany(req.body)
     res.json(data);
   } catch (error) {
     console.log("🚀 ~ error:", error);
@@ -72,9 +72,9 @@ router.post("/create", async (req, res, next) => {
 });
 router.post("/import", async (req, res, next) => {
   try {
-    const deleteData = await FORM.deleteMany({})
+    const deleteData = await SHIPPING.deleteMany({})
     console.log("🚀 ~ deleteData:", deleteData)
-    const data = await FORM.insertMany(req.body)
+    const data = await SHIPPING.insertMany(req.body)
     res.json(data);
   } catch (error) {
     console.log("🚀 ~ error:", error);
@@ -92,7 +92,7 @@ router.put("/createOrUpdate", async (req, res, next) => {
 
       }
     })
-    const data = await FORM.insertMany(req.body)
+    const data = await SHIPPING.insertMany(req.body)
     res.json(data);
   } catch (error) {
     console.log("🚀 ~ error:", error);

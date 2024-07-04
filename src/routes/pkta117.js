@@ -6,7 +6,7 @@ const PKTA117 = require("../models/pkta117");
 
 router.get("/", async (req, res, next) => {
   try {
-    let { kydCD } = req.query
+    let { kydCD, customerPO } = req.query
     let condition = [{
       $match: {}
     }]
@@ -16,6 +16,16 @@ router.get("/", async (req, res, next) => {
         $match: {
           "KYD Cd": {
             $in: kydCD
+          }
+        }
+      })
+    }
+    if (customerPO) {
+      customerPO = JSON.parse(customerPO)
+      condition.push({
+        $match: {
+          "Customer SO#": {
+            $in: customerPO
           }
         }
       })

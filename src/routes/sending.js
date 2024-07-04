@@ -87,10 +87,10 @@ router.get("/printTable", async (req, res, next) => {
     }
     condition.push({
       '$lookup': {
-        'from': 'forms',
+        'from': 'shippings',
         'localField': 'runNo',
         'foreignField': 'runNo',
-        'as': 'forms'
+        'as': 'shippings'
       }
     })
     const usersQuery = await SENDING.aggregate(condition).sort({createdAt:-1})
