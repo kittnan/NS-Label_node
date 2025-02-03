@@ -46,7 +46,6 @@ router.post("/login-SSO", async (req, res, next) => {
       username: payload.name,
       password: payload.pass,
     });
-    console.log("🚀 ~ adAcc:", adAcc.data);
     if (adAcc?.data == "User not found") {
       const resDB = await USERS.aggregate([
         {
@@ -80,6 +79,7 @@ router.post("/login-SSO", async (req, res, next) => {
           },
         },
       ]);
+      console.log("🚀 ~ resDB:", resDB)
       const profile = resDB[0]
       const access_token = jwtGenerate(profile)
       const refresh_token = jwtRefreshTokenGenerate(profile)
@@ -93,7 +93,7 @@ router.post("/login-SSO", async (req, res, next) => {
       })
     }
   } catch (error) {
-    console.log("🚀 ~ error:", error);
+    // console.error("🚀 ~ error:", error);
     res.sendStatus(400);
   }
 })

@@ -54,25 +54,17 @@ app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
 app.use(cors());
 app.use(compression());
 
-let Model = require("./src/routes/models");
-app.use("/model", jwtValidate, Model);
-
-let PKTA117 = require("./src/routes/pkta117");
-app.use("/pkta117", jwtValidate, PKTA117);
-
-let User = require("./src/routes/user");
-app.use("/user", jwtValidate, User);
-
-let shipping = require("./src/routes/shippings");
-app.use("/shipping", jwtValidate, shipping);
-
-let Sending = require("./src/routes/sending");
-app.use("/sending", jwtValidate, Sending);
-
-let Auth = require("./src/routes/auth");
-app.use("/auth", Auth);
+app.use("/model", jwtValidate, require("./src/routes/models"));
+app.use("/pkta117", jwtValidate, require("./src/routes/pkta117"));
+app.use("/user", jwtValidate, require("./src/routes/user"));
+app.use("/shipping", jwtValidate, require("./src/routes/shippings"));
+app.use("/sending", jwtValidate, require("./src/routes/sending"));
+app.use("/auth", require("./src/routes/auth"));
 
 
+app.use("/sap/pkta117", jwtValidate, require("./src/routes_sap/pkta117"));
+app.use("/sap/shipping", jwtValidate, require("./src/routes_sap/shippings"));
+app.use("/sap/sending", jwtValidate, require("./src/routes_sap/sending"));
 
 
 
