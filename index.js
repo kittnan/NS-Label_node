@@ -6,15 +6,38 @@ let morgan = require("morgan");
 let mongoose = require("mongoose");
 let compression = require("compression");
 const jwt = require("jsonwebtoken")
+const oracleHelper = require("./src/helpers/oracleHelper");
 
 mongoose.set("strictQuery", false);
 
 const dotenv = require("dotenv");
 
-dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
+dotenv.config({ path: `.env` });
 console.log("PORT:", process.env.PORT);
 let mongooseConnect = require("./connect");
 const port = process.env.PORT;
+
+// Initialize Oracle connection pool before starting server
+(async () => {
+  try {
+    console.log("Initializing Oracle connection pool...");
+    await oracleHelper.initializePool();
+    
+    const isConnected = await oracleHelper.testConnection();
+    if (isConnected) {
+      console.log("✓ Oracle database connection verified");
+    } else {
+      console.warn("⚠ Oracle database connection test failed");
+    }
+    
+    const stats = oracleHelper.getPoolStats();
+    console.log("Oracle Pool Stats:", stats);
+  } catch (error) {
+    console.error("✗ Failed to initialize Oracle connection:", error.message);
+    console.warn("⚠ Application will continue without Oracle connection");
+  }
+})();
+
 const server = app.listen(port, () => {
   console.log("Listening on  port " + server.address().port);
 });

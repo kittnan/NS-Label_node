@@ -12,6 +12,9 @@ const USERS = require("../models/user");
 
 router.post("/login", async (req, res) => {
   let payload = req.body
+
+  console.log(`⚡ ~ :16 ~ payload:`, payload);
+
   let user = await USERS.aggregate([
     {
       $match: {
@@ -22,6 +25,9 @@ router.post("/login", async (req, res) => {
   ])
 
   user = user?.length > 0 ? user[0] : null
+
+  console.log(`⚡ ~ :26 ~ user:`, user);
+
   if (!user) {
     return res.sendStatus(400)
   }

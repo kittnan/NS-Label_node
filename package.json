@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "set NODE_ENV=production&& node index.js",
+    "start": "set node index.js",
     "dev": "set NODE_ENV=development&& nodemon index.js"
   },
   "author": "",
@@ -28,6 +28,7 @@
     "mongoose": "^7.5.3",
     "morgan": "^1.10.0",
     "node-cron": "^3.0.2",
+    "oracledb": "^5.5.0",
     "xlsx": "^0.18.5"
   }
 }
