@@ -1,7 +1,10 @@
+// oracleHelper requires this file before index.js calls dotenv.config(), so load .env here too
+require('dotenv').config({ path: `.env.${process.env.NODE_ENV || 'development'}` });
+
 const config = {
-  user: 'RCC',
-  password: 'RCC00',
-  connectString: '10.9.184.3:1521/ora11gu8'
+  user: process.env.ORACLE_USER,
+  password: process.env.ORACLE_PASSWORD,
+  connectString: process.env.ORACLE_CONNECT_STRING
 };
 
 

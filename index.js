@@ -12,7 +12,7 @@ mongoose.set("strictQuery", false);
 
 const dotenv = require("dotenv");
 
-dotenv.config({ path: `.env` });
+dotenv.config({ path: `.env.${process.env.NODE_ENV || "development"}` });
 console.log("PORT:", process.env.PORT);
 let mongooseConnect = require("./connect");
 const port = process.env.PORT;

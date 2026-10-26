@@ -1,6 +1,14 @@
 const oracledb = require('oracledb');
 const dbConfig = require('../../sqlconfig');
 
+// Load Oracle Client libraries (Thick mode, required by oracledb 5.x)
+// No libDir: on Linux the libraries are found via LD_LIBRARY_PATH (e.g. /app/instantclient_23_26)
+try {
+  oracledb.initOracleClient();
+} catch (error) {
+  console.error('Error loading Oracle Client libraries:', error.message);
+}
+
 // Configure Oracle client settings
 oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
 oracledb.autoCommit = true;
@@ -127,9 +135,141 @@ function isRetryableError(error) {
   const errorMessage = error.message || '';
   const errorCode = error.code || '';
 
-  return retryableErrors.some(code => 
+  return retryableErrors.some(code =>
     errorMessage.includes(code) || errorCode.includes(code)
   );
+}
+
+/**
+ * Check if error means the pool itself is unusable (not just one connection)
+ * Only these errors trigger a pool rebuild, since closing the pool affects every in-flight request
+ * @param {Error} error
+ * @returns {boolean}
+ */
+function isPoolBrokenError(error) {
+  if (!error) return false;
+
+  const poolBrokenErrors = [
+    'NJS-500', // connection to the Oracle Database was broken
+    'NJS-503', // connection to host could not be established / pool not open
+    'NJS-064', // connection pool is not open (v5)
+    'NJS-065'  // connection pool was closed (v5)
+  ];
+
+  const errorMessage = error.message || '';
+  const errorCode = error.code || '';
+
+  return poolBrokenErrors.some(code =>
+    errorMessage.includes(code) || errorCode.includes(code)
+  );
+}
+
+/**
+ * Check if error means this connection is dead and should be dropped instead of returned to the pool
+ * @param {Error} error
+ * @returns {boolean}
+ */
+function isConnectionDeadError(error) {
+  if (!error) return false;
+
+  const deadErrors = [
+    'NJS-500',
+    'DPI-1010', // not connected
+    'DPI-1080', // connection was closed by ORA-%d
+    'ORA-03113',
+    'ORA-03114',
+    'ORA-03135',
+    'ORA-00028'
+  ];
+
+  const errorMessage = error.message || '';
+  const errorCode = error.code || '';
+
+  return deadErrors.some(code =>
+    errorMessage.includes(code) || errorCode.includes(code)
+  );
+}
+
+let poolRebuildPromise = null;
+
+/**
+ * Rebuild the pool once, even if several requests detect the failure at the same time
+ * @returns {Promise<void>}
+ */
+async function rebuildPool() {
+  if (!poolRebuildPromise) {
+    poolRebuildPromise = (async () => {
+      try {
+        const oldPool = pool;
+        pool = null;
+        if (oldPool) {
+          try {
+            await oldPool.close(0);
+          } catch (closeError) {
+            console.error('Error closing broken pool:', closeError.message);
+          }
+        }
+        await initializePool();
+      } finally {
+        poolRebuildPromise = null;
+      }
+    })();
+  }
+  return poolRebuildPromise;
+}
+
+/**
+ * Release a connection back to the pool, dropping it if it is known to be dead
+ * @param {oracledb.Connection} connection
+ * @param {Error|null} error - the error that occurred while using it, if any
+ * @returns {Promise<void>}
+ */
+async function releaseConnection(connection, error) {
+  if (!connection) return;
+  try {
+    if (isConnectionDeadError(error)) {
+      await connection.close({ drop: true });
+    } else {
+      await connection.close();
+    }
+  } catch (closeError) {
+    console.error('Error closing connection:', closeError.message);
+  }
+}
+
+/**
+ * Get a connection from the pool
+ * Waiting is bounded by poolConfig.queueTimeout (NJS-040), so no Promise.race is needed
+ * @param {number} timeoutMs - per-round-trip call timeout for this connection
+ * @returns {Promise<oracledb.Connection>}
+ */
+async function acquireConnection(timeoutMs) {
+  if (poolRebuildPromise) {
+    await poolRebuildPromise;
+  }
+  if (!pool || isPoolClosing) {
+    await initializePool();
+  }
+  const connection = await pool.getConnection();
+  connection.callTimeout = timeoutMs;
+  return connection;
+}
+
+/**
+ * Wait before the next retry, rebuilding the pool only if it is actually broken
+ * @param {Error} error
+ * @param {number} delay
+ * @returns {Promise<void>}
+ */
+async function recoverBeforeRetry(error, delay) {
+  await sleep(delay);
+  if (isPoolBrokenError(error)) {
+    try {
+      await rebuildPool();
+    } catch (poolError) {
+      console.error('Error reinitializing pool:', poolError.message);
+    }
+  }
 }
 
 /**
@@ -151,76 +291,39 @@ async function executeQuery(sql, binds = [], options = {}) {
   };
 
   let lastError = null;
-  let connection = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    let connection = null;
+    let usageError = null;
     try {
-      // Ensure pool is initialized
-      if (!pool || isPoolClosing) {
-        await initializePool();
-      }
+      // Get connection from pool (waiting is bounded by queueTimeout)
+      connection = await acquireConnection(timeoutMs);
 
-      // Get connection from pool
-      connection = await Promise.race([
-        pool.getConnection(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Connection timeout')), timeoutMs)
-        )
-      ]);
-
-      // Execute query with timeout
-      const result = await Promise.race([
-        connection.execute(sql, binds, executeOptions),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Query execution timeout')), timeoutMs)
-        )
-      ]);
-
-      // Release connection back to pool
-      await connection.close();
-      
-      return result;
+      // callTimeout (set in acquireConnection) bounds each round-trip to the database
+      return await connection.execute(sql, binds, executeOptions);
 
     } catch (error) {
       lastError = error;
-      
-      // Close connection if it exists
-      if (connection) {
-        try {
-          await connection.close();
-        } catch (closeError) {
-          console.error('Error closing connection:', closeError);
-        }
-        connection = null;
-      }
+      usageError = error;
 
       // Check if error is retryable
       if (!isRetryableError(error) || attempt >= maxRetries) {
         console.error(`Query execution failed after ${attempt + 1} attempts:`, error);
         throw error;
       }
-
-      // Calculate backoff delay
-      const delay = calculateBackoff(attempt);
-      console.warn(
-        `Query failed (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}. ` +
-        `Retrying in ${delay}ms...`
-      );
-
-      // If pool seems broken, try to reinitialize
-      if (error.message.includes('pool') || error.message.includes('NJS-')) {
-        try {
-          await closePool();
-          await sleep(delay);
-          await initializePool();
-        } catch (poolError) {
-          console.error('Error reinitializing pool:', poolError);
-          await sleep(delay);
-        }
-      } else {
-        await sleep(delay);
-      }
+    } finally {
+      // Release connection back to pool exactly once, before any retry wait
+      await releaseConnection(connection, usageError);
     }
+
+    // Calculate backoff delay
+    const delay = calculateBackoff(attempt);
+    console.warn(
+      `Query failed (attempt ${attempt + 1}/${maxRetries + 1}): ${lastError.message}. ` +
+      `Retrying in ${delay}ms...`
+    );
+
+    await recoverBeforeRetry(lastError, delay);
   }
 
   throw lastError || new Error('Query execution failed');
@@ -237,59 +340,41 @@ async function executeTransaction(queries, options = {}) {
   const timeoutMs = options.timeoutMs ?? retryConfig.timeoutMs;
 
   let lastError = null;
-  let connection = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    let connection = null;
+    let usageError = null;
     try {
-      // Ensure pool is initialized
-      if (!pool || isPoolClosing) {
-        await initializePool();
-      }
-
-      // Get connection from pool
-      connection = await Promise.race([
-        pool.getConnection(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Connection timeout')), timeoutMs)
-        )
-      ]);
+      // Get connection from pool (waiting is bounded by queueTimeout)
+      connection = await acquireConnection(timeoutMs);
 
       const results = [];
 
       // Execute all queries in transaction
       for (const query of queries) {
-        const result = await Promise.race([
-          connection.execute(query.sql, query.binds || [], {
-            autoCommit: false,
-            outFormat: oracledb.OUT_FORMAT_OBJECT
-          }),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Query execution timeout')), timeoutMs)
-          )
-        ]);
+        const result = await connection.execute(query.sql, query.binds || [], {
+          autoCommit: false,
+          outFormat: oracledb.OUT_FORMAT_OBJECT
+        });
         results.push(result);
       }
 
       // Commit transaction
       await connection.commit();
 
-      // Release connection
-      await connection.close();
-
       return results;
 
     } catch (error) {
       lastError = error;
+      usageError = error;
 
-      // Rollback transaction if connection exists
-      if (connection) {
+      // Rollback transaction if connection is still usable
+      if (connection && !isConnectionDeadError(error)) {
         try {
           await connection.rollback();
-          await connection.close();
         } catch (rollbackError) {
-          console.error('Error during rollback:', rollbackError);
+          console.error('Error during rollback:', rollbackError.message);
         }
-        connection = null;
       }
 
       // Check if error is retryable
@@ -297,28 +382,19 @@ async function executeTransaction(queries, options = {}) {
         console.error(`Transaction failed after ${attempt + 1} attempts:`, error);
         throw error;
       }
-
-      // Calculate backoff delay
-      const delay = calculateBackoff(attempt);
-      console.warn(
-        `Transaction failed (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}. ` +
-        `Retrying in ${delay}ms...`
-      );
-
-      // If pool seems broken, try to reinitialize
-      if (error.message.includes('pool') || error.message.includes('NJS-')) {
-        try {
-          await closePool();
-          await sleep(delay);
-          await initializePool();
-        } catch (poolError) {
-          console.error('Error reinitializing pool:', poolError);
-          await sleep(delay);
-        }
-      } else {
-        await sleep(delay);
-      }
+    } finally {
+      // Release connection back to pool exactly once, before any retry wait
+      await releaseConnection(connection, usageError);
     }
+
+    // Calculate backoff delay
+    const delay = calculateBackoff(attempt);
+    console.warn(
+      `Transaction failed (attempt ${attempt + 1}/${maxRetries + 1}): ${lastError.message}. ` +
+      `Retrying in ${delay}ms...`
+    );
+
+    await recoverBeforeRetry(lastError, delay);
   }
 
   throw lastError || new Error('Transaction execution failed');

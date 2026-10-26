@@ -48,7 +48,7 @@ router.post("/login", async (req, res) => {
 router.post("/login-SSO", async (req, res, next) => {
   try {
     const payload = req.body;
-    const adAcc = await axios.post("http://10.200.90.152:4038/AzureLogin/getByCondition", {
+    const adAcc = await axios.post(process.env.SSO_URL, {
       username: payload.name,
       password: payload.pass,
     });
@@ -108,7 +108,7 @@ const jwtGenerate = (user) => {
   const accessToken = jwt.sign(
     { name: user.employeeCode, id: user._id },
     process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: "1d", algorithm: "HS256" }
+    { expiresIn: process.env.ACCESS_TOKEN_EXPIRES || "1d", algorithm: "HS256" }
   )
 
   return accessToken
@@ -118,7 +118,7 @@ const jwtRefreshTokenGenerate = (user) => {
   const refreshToken = jwt.sign(
     { name: user.employeeCode, id: user._id },
     process.env.REFRESH_TOKEN_SECRET,
-    { expiresIn: "30m", algorithm: "HS256" }
+    { expiresIn: process.env.REFRESH_TOKEN_EXPIRES || "30m", algorithm: "HS256" }
   )
 
   return refreshToken
